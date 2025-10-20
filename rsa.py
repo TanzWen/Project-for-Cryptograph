@@ -1,19 +1,22 @@
 """
 RSA Algorithm Implementation
+SC6104 - Introduction to Cryptography
 
-This module implements the RSA cryptosystem from scratch, including:
-- Prime number generation
-- Key pair generation
+This module implements the core RSA algorithm including:
+- Helper functions (primality testing, GCD, modular inverse)
+- Key generation
 - Encryption and decryption
-
-Author: Educational demonstration for cryptography study
 """
 
 import random
-import math
+from typing import Tuple, Optional
 
 
-def is_prime(n, k=5):
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def is_prime(n: int, k: int = 40) -> bool:
     """
     Miller-Rabin primality test.
 
@@ -55,228 +58,217 @@ def is_prime(n, k=5):
     return True
 
 
-def generate_prime(bits):
+def gcd(a: int, b: int) -> int:
     """
-    Generate a random prime number of specified bit length.
+    Compute the greatest common divisor using Euclidean algorithm.
+
+    Args:
+        a: First integer
+        b: Second integer
+
+    Returns:
+        GCD of a and b
+    """
+    while b:
+        a, b = b, a % b
+    return a
+
+
+def extended_gcd(a: int, b: int) -> Tuple[int, int, int]:
+    """
+    Extended Euclidean algorithm.
+
+    Returns (gcd, x, y) such that a*x + b*y = gcd
+    """
+    if a == 0:
+        return b, 0, 1
+
+    gcd_val, x1, y1 = extended_gcd(b % a, a)
+    x = y1 - (b // a) * x1
+    y = x1
+
+    return gcd_val, x, y
+
+
+def mod_inverse(a: int, m: int) -> Optional[int]:
+    """
+    Compute modular multiplicative inverse of a modulo m.
+
+    Args:
+        a: The number to invert
+        m: The modulus
+
+    Returns:
+        x such that (a * x) % m == 1, or None if inverse doesn't exist
+    """
+    gcd_val, x, _ = extended_gcd(a, m)
+
+    if gcd_val != 1:
+        return None  # Modular inverse doesn't exist
+
+    return (x % m + m) % m
+
+
+def generate_prime(bits: int) -> int:
+    """
+    Generate a random prime number with specified bit length.
 
     Args:
         bits: Desired bit length of the prime
 
     Returns:
-        A prime number of approximately 'bits' bits
+        A prime number of approximately 'bits' length
     """
     while True:
-        # Generate random odd number of desired bit length
-        candidate = random.getrandbits(bits)
-        # Ensure it has the correct bit length (MSB set)
-        candidate |= (1 << bits - 1) | 1
+        # Generate random odd number in range
+        n = random.getrandbits(bits)
+        # Ensure it's odd and has the right bit length
+        n |= (1 << bits - 1) | 1
 
-        if is_prime(candidate):
-            return candidate
+        if is_prime(n):
+            return n
 
-
-def extended_gcd(a, b):
+def str2num(s: str) -> int:
     """
-    Extended Euclidean Algorithm.
-
-    Finds x, y such that ax + by = gcd(a, b)
+    Convert a string to an integer representation.
 
     Args:
-        a, b: Integers
+        s: Input string
 
     Returns:
-        Tuple (gcd, x, y)
+        Integer representation of the string
     """
-    if a == 0:
-        return b, 0, 1
+    return int.from_bytes(s.encode('utf-8'), 'big')
 
-    gcd, x1, y1 = extended_gcd(b % a, a)
-    x = y1 - (b // a) * x1
-    y = x1
-
-    return gcd, x, y
-
-
-def mod_inverse(e, phi):
+def num2str(n: int) -> str:
     """
-    Calculate modular multiplicative inverse of e modulo phi.
-
-    Finds d such that (e * d) ≡ 1 (mod phi)
+    Convert an integer back to a string representation.
 
     Args:
-        e: Public exponent
-        phi: Euler's totient of n
+        n: Input integer
 
     Returns:
-        Private exponent d
+        String representation of the integer
     """
-    gcd, x, _ = extended_gcd(e, phi)
+    length = (n.bit_length() + 7) // 8
+    return n.to_bytes(length, 'big').decode('utf-8')
+# ============================================================================
+# CORE RSA FUNCTIONS
+# ============================================================================
 
-    if gcd != 1:
-        raise ValueError("Modular inverse does not exist")
-
-    return x % phi
-
-
-def generate_keypair(bits=512):
+def generate_keypair(bits: int = 1024) -> Tuple[Tuple[int, int], Tuple[int, int]]:
     """
-    Generate an RSA public/private key pair.
+    Generate an RSA keypair.
 
     Args:
-        bits: Bit length for each prime (total key size will be 2*bits)
+        bits: Bit length for each prime (total modulus will be ~2*bits)
 
     Returns:
-        Tuple ((n, e), (n, d)) where:
-            (n, e) is the public key
-            (n, d) is the private key
+        ((e, n), (d, n)) - public key and private key
     """
-    # Generate two large distinct prime numbers
-    print(f"Generating two {bits}-bit primes...")
+    # Generate two distinct primes
     p = generate_prime(bits)
     q = generate_prime(bits)
-
-    # Ensure p and q are distinct
     while p == q:
         q = generate_prime(bits)
 
-    # Calculate modulus n = p * q
+    # Compute modulus
     n = p * q
 
-    # Calculate Euler's totient: phi(n) = (p-1)(q-1)
-    phi = (p - 1) * (q - 1)
+    # Compute Euler's totient
+    phi_n = (p - 1) * (q - 1)
 
-    # Choose public exponent e (commonly 65537)
-    # e must be coprime to phi
+    # Choose public exponent (commonly 65537)
     e = 65537
-    if math.gcd(e, phi) != 1:
-        # Fallback to finding a suitable e
-        e = 3
-        while math.gcd(e, phi) != 1:
-            e += 2
+    while gcd(e, phi_n) != 1:
+        e = random.randrange(3, phi_n, 2)
 
-    # Calculate private exponent d
-    # d is the modular multiplicative inverse of e mod phi
-    d = mod_inverse(e, phi)
+    # Compute private exponent
+    d = mod_inverse(e, phi_n)
 
-    # Public key: (n, e)
-    # Private key: (n, d)
-    return (n, e), (n, d)
+    return ((e, n), (d, n))
 
 
-def generate_weak_keypair(bits=512):
-    """
-    Generate a WEAK RSA key pair where p and q are close together.
-
-    This makes the key vulnerable to Fermat's factorization attack.
-
-    Args:
-        bits: Bit length for the primes
-
-    Returns:
-        Tuple ((n, e), (n, d), p, q) where:
-            (n, e) is the public key
-            (n, d) is the private key
-            p, q are the prime factors (returned for verification)
-    """
-    print(f"Generating WEAK key with close primes (for demonstration)...")
-
-    # Start from a random number and find consecutive primes
-    base = random.getrandbits(bits) | (1 << bits - 1) | 1
-
-    # Find first prime
-    p = base
-    while not is_prime(p):
-        p += 2
-
-    # Find next prime close to p
-    q = p + 2
-    while not is_prime(q):
-        q += 2
-
-    print(f"Prime p has {p.bit_length()} bits")
-    print(f"Prime q has {q.bit_length()} bits")
-    print(f"Difference |p - q| = {abs(p - q)}")
-
-    # Calculate n and phi
-    n = p * q
-    phi = (p - 1) * (q - 1)
-
-    # Choose e and calculate d
-    e = 65537
-    if math.gcd(e, phi) != 1:
-        e = 3
-        while math.gcd(e, phi) != 1:
-            e += 2
-
-    d = mod_inverse(e, phi)
-
-    return (n, e), (n, d), p, q
-
-
-def encrypt(public_key, message):
+def encrypt(message: int, public_key: Tuple[int, int]) -> int:
     """
     Encrypt a message using RSA public key.
 
     Args:
-        public_key: Tuple (n, e)
         message: Integer message (must be < n)
+        public_key: (e, n)
 
     Returns:
         Ciphertext c = m^e mod n
     """
-    n, e = public_key
-
-    if message >= n:
-        raise ValueError("Message must be smaller than modulus n")
-
-    # c = m^e mod n
-    ciphertext = pow(message, e, n)
-    return ciphertext
+    e, n = public_key
+    return pow(message, e, n)
 
 
-def decrypt(private_key, ciphertext):
+def decrypt(ciphertext: int, private_key: Tuple[int, int]) -> int:
     """
     Decrypt a ciphertext using RSA private key.
 
     Args:
-        private_key: Tuple (n, d)
         ciphertext: Encrypted message
+        private_key: (d, n)
 
     Returns:
-        Original message m = c^d mod n
+        Plaintext m = c^d mod n
     """
-    n, d = private_key
+    d, n = private_key
+    return pow(ciphertext, d, n)
 
-    # m = c^d mod n
-    message = pow(ciphertext, d, n)
-    return message
 
+# ============================================================================
+# EXAMPLE USAGE
+# ============================================================================
 
 if __name__ == "__main__":
-    # Simple demonstration of RSA encryption/decryption
-    print("="*60)
-    print("RSA Algorithm Demonstration")
-    print("="*60)
-
+    print("RSA Algorithm Demo")
+    print("=" * 80)
+    # input("Press Enter to generate a new RSA keypair...")
+    message = input("Enter a message to encrypt: ")
+    bits = int(input("Enter key size in bits (e.g., 1024, 2048): "))
+    print("*" * 80)
+    print("*"+" "*78+"*")
+    print("*"+" "*28+"Generating RSA keypair"+" "*28+"*")
+    print("*"+" "*78+"*")
+    print("*" * 80)
     # Generate keypair
-    public_key, private_key = generate_keypair(bits=1024)
-    n, e = public_key
-    _, d = private_key
+    public_key, private_key = generate_keypair(bits)
+    e, n = public_key
+    d, _ = private_key
 
-    print(f"\nPublic Key (n, e):")
-    print(f"  n = {n}")
+    print(f"Public key (e, n):")
     print(f"  e = {e}")
-    print(f"\nPrivate Key (n, d):")
+    print(f"  n = {n}")
+    print(f"\nPrivate key (d, n):")
     print(f"  d = {d}")
+    print()
+    print("*" * 80)
+    print("*"+" "*78+"*")
+    print("*"+" "*30+"Encrypting message"+" "*30+"*")
+    print("*"+" "*78+"*")
+    print("*" * 80)
+    # Test message
+    print(f"Original message: {message}")
+    message_num = str2num(message)
+    print(f"Message as number: {message_num}")
 
-    # Encrypt a message
-    message = 123456789
-    print(f"\nOriginal message: {message}")
+    # Encrypt
+    ciphertext = encrypt(message_num, public_key)
+    print(f"Encrypted: {ciphertext}")
+    print()
+    print("*" * 80)
+    print("*"+" "*78+"*")
+    print("*"+" "*30+"decrypting message"+" "*30+"*")
+    print("*"+" "*78+"*")
+    print("*" * 80)
+    # Decrypt
+    decrypted_num = decrypt(ciphertext, private_key)
+    decrypted = num2str(decrypted_num)
+    print(f"Decrypted number: {decrypted_num}")
+    print(f"Decrypted: {decrypted}")
 
-    ciphertext = encrypt(public_key, message)
-    print(f"Encrypted ciphertext: {ciphertext}")
-
-    # Decrypt the message
-    decrypted = decrypt(private_key, ciphertext)
-    print(f"Decrypted message: {decrypted}")
-    print(f"\nDecryption successful: {decrypted == message}")
+    assert message == decrypted, "Decryption failed!"
+    print("\n✓ Encryption/Decryption successful!")
